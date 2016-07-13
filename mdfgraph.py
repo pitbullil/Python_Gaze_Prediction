@@ -33,15 +33,23 @@ class S3CNN:
         
     def build(self, sp,nn,pic, train=False,random_init_fc8=False,debug=False):
         
-        self.sp_out = self.__stream(sp,"sp_")
-        self.nn_out = self.__stream(nn,"nn_")
-        self.pic_out = self.__stream(pic,"pic_")
-        
-        self.feat = tf.concat(1,[sp_out,nn_out,pic_out])
-        self.nn1 = self._fc_layer(self.feat, "nn1")
-        self.nn2 = self._fc_layer(self.nn1, "nn2")
-        self.scor_fr = self._fc_layer(self.nn2, "score_fr")
-        self.pred = tf.argmax(self.score_fr, dimension=3)
+        self.sp_out = self.__stream(sp,"sp")
+        self.nn_out = self.__stream(nn,"nn")
+        self.pic_out = self.__stream(pic,"pic")
+        shape = tf.shape(self.sp_out).eval()
+
+        print(shape)
+                  
+        self.feat = tf.concat(0,[self.sp_out,self.nn_out,self.pic_out])
+        shape = tf.shape(self.feat)
+
+        print(shape)
+    
+                    
+        #self.nn1 = self._fc_layer(self.feat, "nn1")
+        #self.nn2 = self._fc_layer(self.nn1, "nn2")
+        #self.scor_fr = self._fc_layer(self.nn2, "score_fr")
+        #self.pred = tf.argmax(self.score_fr, dimension=3)
 
 
     def __stream(self,rgb,name , train=False, num_classes=2,debug=False):
@@ -79,107 +87,43 @@ class S3CNN:
                 bgr = tf.Print(bgr, [tf.shape(bgr)],
                                message='Shape of input image: ',
                                summarize=4, first_n=1)
-        
-        if name == 'sp_':
-            self.sp_conv1_1 = self._conv_layer(bgr, name+"conv1_1")        
-            self.sp_conv1_2 = self._conv_layer(self.sp_conv1_1, name+"conv1_2")
-            self.sp_pool1 = self._max_pool(self.sp_conv1_2, name+'pool1', debug)
+        with tf.variable_scope(name) as scope:
+
+            self.conv1_1 = self._conv_layer(bgr, "conv1_1")        
+            self.conv1_2 = self._conv_layer(self.conv1_1, "conv1_2")
+            self.pool1 = self._max_pool(self.conv1_2, 'pool1', debug)
             
-            self.sp_conv2_1 = self._conv_layer(self.sp_pool1, name+"conv2_1")
-            self.sp_conv2_2 = self._conv_layer(self.sp_conv2_1, name+"conv2_2")
-            self.sp_pool2 = self._max_pool(self.sp_conv2_2, name+'pool2', debug)
-            self.sp_conv3_1 = self._conv_layer(self.sp_pool2, name+"conv3_1")
-            self.sp_conv3_2 = self._conv_layer(self.sp_conv3_1,name+ "conv3_2")
-            self.sp_conv3_2 = self._conv_layer(self.sp_conv3_2, name+"conv3_3")
-            self.sp_pool3 = self._max_pool(self.sp_conv3_2, name+'pool3', debug)
+            self.conv2_1 = self._conv_layer(self.pool1, "conv2_1")
+            self.conv2_2 = self._conv_layer(self.conv2_1, "conv2_2")
+            self.pool2 = self._max_pool(self.conv2_2, 'pool2', debug)
+            self.conv3_1 = self._conv_layer(self.pool2, "conv3_1")
+            self.conv3_2 = self._conv_layer(self.conv3_1,"conv3_2")
+            self.conv3_2 = self._conv_layer(self.conv3_2,"conv3_3")
+            self.pool3 = self._max_pool(self.conv3_2,'pool3', debug)
             
-            self.sp_conv4_1 = self._conv_layer(self.sp_pool3, name+"conv4_1")
-            self.sp_conv4_2 = self._conv_layer(self.sp_conv4_1, name+"conv4_2")
-            self.sp_conv4_3 = self._conv_layer(self.sp_conv4_2, name+"conv4_3")
-            self.sp_pool4 = self._max_pool(self.sp_conv4_3, name+'pool4', debug)
+            self.conv4_1 = self._conv_layer(self.pool3,"conv4_1")
+            self.conv4_2 = self._conv_layer(self.conv4_1,"conv4_2")
+            self.conv4_3 = self._conv_layer(self.conv4_2,"conv4_3")
+            self.pool4 = self._max_pool(self.conv4_3,'pool4', debug)
             
-            self.sp_conv5_1 = self._conv_layer(self.sp_pool4, name+"conv5_1")
-            self.sp_conv5_2 = self._conv_layer(self.sp_conv5_1, name+"conv5_2")
-            self.sp_conv5_3 = self._conv_layer(self.sp_conv5_2, name+"conv5_3")
-            self.sp_pool5 = self._max_pool(self.sp_conv5_3, name+'pool5', debug)
-            self.sp_fc6 = self._fc_layer(self.sp_pool5, name+"fc6")
+            self.conv5_1 = self._conv_layer(self.pool4,"conv5_1")
+            self.conv5_2 = self._conv_layer(self.conv5_1,"conv5_2")
+            self.conv5_3 = self._conv_layer(self.conv5_2,"conv5_3")
+            self.pool5 = self._max_pool(self.conv5_3, 'pool5', debug)
+            self.fc6 = self._fc_layer(self.pool5,"fc6")
             
             if train:
-                self.sp_fc6 = tf.nn.dropout(self.sp_fc6, 0.5)
+                self.fc6 = tf.nn.dropout(self.fc6, 0.5)
                 
-            self.sp_fc7 = self._fc_layer(self.sp_fc6, name+"fc7")
+            self.fc7 = self._fc_layer(self.fc6,"fc7")
             if train:
-                self.sp_fc7 = tf.nn.dropout(self.sp_fc7, 0.5)
+                self.fc7 = tf.nn.dropout(self.fc7, 0.5)
                 #returning input to S3-CNN
-            return self.sp_fc7
+            return self.fc7
             
-        if name == 'nn_':
-            self.nn_conv1_1 = self._conv_layer(bgr, name+"conv1_1")        
-            self.nn_conv1_2 = self._conv_layer(self.nn_conv1_1, name+"conv1_2")
-            self.nn_pool1 = self._max_pool(self.nn_conv1_2, name+'pool1', debug)
-            
-            self.nn_conv2_1 = self._conv_layer(self.nn_pool1, name+"conv2_1")
-            self.nn_conv2_2 = self._conv_layer(self.nn_conv2_1, name+"conv2_2")
-            self.nn_pool2 = self._max_pool(self.nn_conv2_2,name+ 'pool2', debug)
-            self.nn_conv3_1 = self._conv_layer(self.nn_pool2, name+"conv3_1")
-            self.nn_conv3_2 = self._conv_layer(self.nn_conv3_1,name+ "conv3_2")
-            self.nn_conv3_2 = self._conv_layer(self.nn_conv3_2, name+"conv3_3")
-            self.nn_pool3 = self._max_pool(self.nn_conv3_2, name+'pool3', debug)
-            
-            self.nn_conv4_1 = self._conv_layer(self.nn_pool3, name+"conv4_1")
-            self.nn_conv4_2 = self._conv_layer(self.nn_conv4_1, name+"conv4_2")
-            self.nn_conv4_3 = self._conv_layer(self.nn_conv4_2, name+"conv4_3")
-            self.nn_pool4 = self._max_pool(self.nn_conv4_3, name+'pool4', debug)
-            
-            self.nn_conv5_1 = self._conv_layer(self.nn_pool4, name+"conv5_1")
-            self.nn_conv5_2 = self._conv_layer(self.nn_conv5_1, name+"conv5_2")
-            self.nn_conv5_3 = self._conv_layer(self.nn_conv5_2, name+"conv5_3")
-            self.nn_pool5 = self._max_pool(self.nn_conv5_3, name+'pool5', debug)
-            self.nn_fc6 = self._fc_layer(self.nn_pool5, name+"fc6")
-            
-            if train:
-                self.nn_fc6 = tf.nn.dropout(self.nn_fc6, 0.5)
-                
-            self.nn_fc7 = self._fc_layer(self.nn_fc6, name+"fc7")
-            if train:
-                self.nn_fc7 = tf.nn.dropout(self.nn_fc7, 0.5)
-                #returning input to S3-CNN
-            return self.nn_fc7
-        
-        if name == 'pic_':
-            self.pic_conv1_1 = self._conv_layer(bgr, name+"conv1_1")        
-            self.pic_conv1_2 = self._conv_layer(self.pic_conv1_1, name+"conv1_2")
-            self.pic_pool1 = self._max_pool(self.pic_conv1_2, name+'pool1', debug)
-            
-            self.pic_conv2_1 = self._conv_layer(self.pic_pool1, name+"conv2_1")
-            self.pic_conv2_2 = self._conv_layer(self.pic_conv2_1, name+"conv2_2")
-            self.pic_pool2 = self._max_pool(self.pic_conv2_2, name+'pool2', debug)
-            self.pic_conv3_1 = self._conv_layer(self.pic_pool2, name+"conv3_1")
-            self.pic_conv3_2 = self._conv_layer(self.pic_conv3_1,name+ "conv3_2")
-            self.pic_conv3_2 = self._conv_layer(self.pic_conv3_2, name+"conv3_3")
-            self.pic_pool3 = self._max_pool(self.pic_conv3_2, name+'pool3', debug)
-            
-            self.pic_conv4_1 = self._conv_layer(self.pic_pool3, name+"conv4_1")
-            self.pic_conv4_2 = self._conv_layer(self.pic_conv4_1, name+"conv4_2")
-            self.pic_conv4_3 = self._conv_layer(self.pic_conv4_2, name+"conv4_3")
-            self.pic_pool4 = self._max_pool(self.pic_conv4_3, name+'pool4', debug)
-            
-            self.pic_conv5_1 = self._conv_layer(self.pic_pool4, name+"conv5_1")
-            self.pic_conv5_2 = self._conv_layer(self.pic_conv5_1, name+"conv5_2")
-            self.pic_conv5_3 = self._conv_layer(self.pic_conv5_2, name+"conv5_3")
-            self.pic_pool5 = self._max_pool(self.pic_conv5_3, name+'pool5', debug)
-            self.pic_fc6 = self._fc_layer(self.pic_pool5, name+"fc6")
-            
-            if train:
-                self.pic_fc6 = tf.nn.dropout(self.pic_fc6, 0.5)
-                
-            self.pic_fc7 = self._fc_layer(self.pic_fc6, name+"fc7")
-            if train:
-                self.pic_fc7 = tf.nn.dropout(self.pic_fc7, 0.5)
-                #returning input to S3-CNN
-            return self.pic_fc7
     
     def _max_pool(self, bottom, name, debug):
+        path = tf.get_variable_scope().name
         pool = tf.nn.max_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
                               padding='SAME', name=name)
 
@@ -190,7 +134,10 @@ class S3CNN:
         return pool
 
     def _conv_layer(self, bottom, name):
+        path = tf.get_variable_scope().name
         with tf.variable_scope(name) as scope:
+            if path != '':
+                name = path+'_'+name
             filt = self.get_conv_filter(name)
             conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
 
@@ -204,21 +151,26 @@ class S3CNN:
 
     def _fc_layer(self, bottom, name, num_classes=None,
                   relu=True, debug=False):
-        with tf.variable_scope(name) as scope:
+        path = tf.get_variable_scope().name
+        with tf.variable_scope(name) as scope:            
+            if path != '':
+                name = path+'_'+name
+
             shape = bottom.get_shape().as_list()
 
-            if name == 'fc6':
+            if 'fc6' in name:
                 filt = self.get_fc_weight_reshape(name, [7, 7, 512, 4096])
-            elif name == 'nn1':
-                filt = self.get_fc_weight_reshape(name, [1, 1, 12289, 300])
-            elif name == 'nn2':
-                filt = self.get_fc_weight_reshape(name, [1, 1, 300, 301])
+            elif 'nn1' in name:
+                filt = self.get_fc_weight_reshape(name, [1, 1, 12288, 300])
+            elif 'nn2' in name:
+                filt = self.get_fc_weight_reshape(name, [1, 1, 300, 300])
 
-            elif name == 'score_fr':
-                name = 'nnout'  # Name of score_fr layer in MDF Model
-                filt = self.get_fc_weight_reshape(name, [1, 1, 301, 2],
+            elif 'score_fr' in name:
+                ind = name.find('score_fr')
+                name = name [0:ind] + 'nnout'  # Name of score_fr layer in MDF Model
+                filt = self.get_fc_weight_reshape(name, [1, 1, 300, 2],
                                                   num_classes=num_classes)
-            elif name == 'fc7':
+            else:
                 filt = self.get_fc_weight_reshape(name, [1, 1, 4096, 4096])
                 
             conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
