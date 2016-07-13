@@ -122,13 +122,13 @@ def im2mdfin(img,mean,segmap,segments):
         #mean subtraction on region B
         bounding_box_second = bounding_box_second - mean_image[bb_mid[0,0]:bb_mid[0,1],bb_mid[1,0]:bb_mid[1,1]]
         #resizing superpixel to net input size
-        pair.SP_Region= sp.misc.imresize(seg_img,[227,227,3])
+        pair.SP_Region= np.array(sp.misc.imresize(seg_img,[227,227,3]),dtype = np.uint8)
         #resizing neighborhood to net input size
-        pair.SP_Neighbor = sp.misc.imresize(bounding_box_second,[227,227,3])
+        pair.SP_Neighbor = np.array(sp.misc.imresize(bounding_box_second,[227,227,3]),dtype = np.uint8)
         #picture with segment masked
         picture = np.copy(img)-mean_image
         picture[segmap == curr_sp,:]=0
-        pair.Pic = sp.misc.imresize(picture,[227,227,3])
+        pair.Pic = np.array(sp.misc.imresize(picture,[227,227,3]),dtype = np.uint8)
         #pair.saliency = round(saliency_score) 
         pair.SP_mask = sp.misc.imresize(sp_mask,[227,227,3])
         result.segments.append(pair)
@@ -161,7 +161,7 @@ def msradirtomdfin(dir_path,NSP):
 def _generate_image_segments_and_label_batch(images,img_dir,seg_dir,mean_img):
     #choosing 5 images at random
     test_batch = []
-    train_batch = []
+    batch_labels     = []
     for i in range(0,images.__len__()):
         img = io.imread(img_dir+images[i])
         segf = open(seg_dir+images[i][0:-3]+'slic','rb')
@@ -170,21 +170,31 @@ def _generate_image_segments_and_label_batch(images,img_dir,seg_dir,mean_img):
         sal_l = dill.load(segf)
         segf.close()
         data = im2mdfin(img,mean_img,segmap,segments_l)
-
-        for j in range(0,segments_l.__len__()):
+            
+        for j in range(0,segments_l.__len__()):                
             x = data.segments[j]
-            if i <1000:
-                test_batch.append([[x.SP_Region,x.SP_Neighbor,x.Pic],sal_l[j]])
-            else:
-                train_batch.append([[x.SP_Region,x.SP_Neighbor,x.Pic],sal_l[j]])
+            dat = np.zeros([227,227,9],dtype = np.uint8)
+            dat[:,:,0:3]= x.SP_Region
+            dat[:,:,3:6]=x.SP_Neighbor
+            dat[:,:,6:9]=x.Pic
+            test_batch.append(sal_l[j])
+            test_batch.append(x.SP_Region)
+            test_batch.append(x.SP_Neighbor)
+            test_batch.append(x.Pic)
 
-    return test_batch,train_batch
+    return test_batch
 
 def dill_file_to_shuffle_batch(file_path):
-    f = open(file_path,'rb')
-    batch = dill.load(f)
-    f.close()
+    with open(file_path,'rb') as f:
+        batch = dill.load(f)
+        f.close()
     
+def write_batch_to_file(path,images,i,batch_size,img_dir,seg_dir,mean_img):
+    with open(path,'wb') as f:
+        batch = _generate_image_segments_and_label_batch(images[i*batch_size:(i+1)*batch_size],img_dir,seg_dir,mean_img)
+        dill.dump(batch,f)
+        f.close()
+ 
 #def _generate_image_segments_and_label_batch(image, label, min_queue_examples,
 #batch_size, shuffle):
 
