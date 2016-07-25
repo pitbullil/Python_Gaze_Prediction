@@ -4,7 +4,6 @@ import utils
 import mdfgraph as mdf
 import numpy as np
 import tensorflow as tf
-import skimage.io as sio
 import scipy as scp
 
 with tf.Session() as sess:
@@ -16,7 +15,7 @@ with tf.Session() as sess:
     sp_in = tf.placeholder("float")
     nn_in = tf.placeholder("float")
     pic_in = tf.placeholder("float")
-    feed_dict = {sp_in :sp, nn_in : nn, pic_in : pic}
+    feed_dict = {sp_in :sp[0:1], nn_in : nn[0:1], pic_in : pic[0:1]}
     in_1 = [sp[0],nn[0],pic[0]]
     s3cnn = mdf.S3CNN()
     with tf.name_scope("content_s3cnn"):
@@ -25,8 +24,9 @@ with tf.Session() as sess:
     init = tf.initialize_all_variables()
     sess.run(tf.initialize_all_variables())
     print('Running the Network')
-    tensors = [s3cnn.pred]
-    down, up = sess.run(tensors, feed_dict=feed_dict)
+    tensors = [s3cnn.feat]
+    with tf.device('/cpu:0'):
+        down, up = sess.run(tensors, feed_dict=feed_dict)
     down_color = utils.color_image(down[0])
     up_color = utils.color_image(up[0])
     scp.misc.imsave('fcn16_downsampled.png', down_color)

@@ -8,6 +8,7 @@ from math import ceil
 import sys
 import numpy as np
 import tensorflow as tf
+import mdf_preprocessing as mdp
 sys.path.insert(0,'./tensorflow-fcn')
 
 
@@ -22,7 +23,7 @@ class S3CNN:
             # print path
             path = os.path.abspath(os.path.join(path, os.pardir))
             # print path
-            path = os.path.join(path, "s3cnn_weights.npy")
+            path = os.path.join(path, "s3cnn_vgg.npy")
             print(path)
             s3cnn_npy_path = path
             
@@ -88,19 +89,27 @@ class S3CNN:
                                summarize=4, first_n=1)
         with tf.variable_scope(name) as scope:
 
-            self.conv1 = self._conv_layer(bgr, "conv1")
-            self.pool1 = self._max_pool(self.conv1, 'pool1', debug)
+            self.conv1_1 = self._conv_layer(bgr, "conv1_1")        
+            self.conv1_2 = self._conv_layer(self.conv1_1, "conv1_2")
+            self.pool1 = self._max_pool(self.conv1_2, 'pool1', debug)
             
-            self.conv2 = self._conv_layer(self.pool1, "conv2")
-            self.pool2 = self._max_pool(self.conv2, 'pool2', debug)
-            self.conv3 = self._conv_layer(self.pool2, "conv3")
-            self.pool3 = self._max_pool(self.conv3,'pool3', debug)
+            self.conv2_1 = self._conv_layer(self.pool1, "conv2_1")
+            self.conv2_2 = self._conv_layer(self.conv2_1, "conv2_2")
+            self.pool2 = self._max_pool(self.conv2_2, 'pool2', debug)
+            self.conv3_1 = self._conv_layer(self.pool2, "conv3_1")
+            self.conv3_2 = self._conv_layer(self.conv3_1,"conv3_2")
+            self.conv3_2 = self._conv_layer(self.conv3_2,"conv3_3")
+            self.pool3 = self._max_pool(self.conv3_2,'pool3', debug)
             
-            self.conv4 = self._conv_layer(self.pool3,"conv4")
-            self.pool4 = self._max_pool(self.conv4,'pool4', debug)
+            self.conv4_1 = self._conv_layer(self.pool3,"conv4_1")
+            self.conv4_2 = self._conv_layer(self.conv4_1,"conv4_2")
+            self.conv4_3 = self._conv_layer(self.conv4_2,"conv4_3")
+            self.pool4 = self._max_pool(self.conv4_3,'pool4', debug)
             
-            self.conv5 = self._conv_layer(self.pool4,"conv5")
-            self.pool5 = self._max_pool(self.conv5, 'pool5', debug)
+            self.conv5_1 = self._conv_layer(self.pool4,"conv5_1")
+            self.conv5_2 = self._conv_layer(self.conv5_1,"conv5_2")
+            self.conv5_3 = self._conv_layer(self.conv5_2,"conv5_3")
+            self.pool5 = self._max_pool(self.conv5_3, 'pool5', debug)
             self.fc6 = self._fc_layer(self.pool5,"fc6")
             
             if train:
