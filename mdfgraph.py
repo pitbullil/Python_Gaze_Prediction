@@ -10,9 +10,10 @@ import numpy as np
 import tensorflow as tf
 sys.path.insert(0,'./tensorflow-fcn')
 
+MAX_BATCH_SIZE =50
 
 class S3CNN:
-    
+
     #provide a path to the weights file for each layer
     
     #loading initial weights
@@ -35,16 +36,27 @@ class S3CNN:
         self.sp_out = self.__stream(sp,"sp")
         self.nn_out = self.__stream(nn,"nn")
         self.pic_out = self.__stream(pic,"pic")
-        shape = tf.shape(self.sp_out).eval()
+        self.shape = tf.shape(self.sp_out)
 
-        print(shape)
+        print(self.shape)
                   
-        self.feat = tf.concat(0,[self.sp_out,self.nn_out,self.pic_out])
-        shape = tf.shape(self.feat)
+        self.feat = tf.concat(1,[self.sp_out,self.nn_out,self.pic_out])
+        self.fshape = tf.shape(self.feat)
 
-        print(shape)
+        print(self.fshape)
     
-                    
+        self.nn1W = tf.Variable(self.data_dict["nn1"][0])
+        self.nn1b = tf.Variable(self.data_dict["nn1"][1])
+        self.nn1 = tf.tanh(tf.matmul(self.feat, self.nn1W)+ self.nn1b)
+
+        self.nn2W = tf.Variable(self.data_dict["nn2"][0])
+        self.nn2b = tf.Variable(self.data_dict["nn2"][1])
+        self.nn2 = tf.tanh(tf.matmul(self.nn1, self.nn2W)+ self.nn2b)
+
+        self.nnoutW = tf.Variable(self.data_dict["nout"][0])
+        self.nnoutb = tf.Variable(self.data_dict["nout"][1])
+        self.nnout = tf.sigmoid(tf.matmul(self.nn2, self.nnoutW)+ self.nnoutb)
+
         #self.nn1 = self._fc_layer(self.feat, "nn1")
         #self.nn2 = self._fc_layer(self.nn1, "nn2")
         #self.scor_fr = self._fc_layer(self.nn2, "score_fr")
@@ -87,36 +99,65 @@ class S3CNN:
                                message='Shape of input image: ',
                                summarize=4, first_n=1)
         with tf.variable_scope(name) as scope:
+            k_h = 11; k_w = 11; c_o = 96; s_h = 4; s_w = 4
+            self.conv1 = self._conv_layer(bgr, s_h, s_w, "conv1")
+            radius = 2; alpha = 2e-05; beta = 0.75; bias = 1.0
+            self.lrn1 = tf.nn.local_response_normalization(self.conv1,
+                                                  depth_radius=radius,
+                                                  alpha=alpha,
+                                                  beta=beta,
+                                                  bias=bias)
 
-            self.conv1 = self._conv_layer(bgr, "conv1")
-            self.pool1 = self._max_pool(self.conv1, 'pool1', debug)
-            
-            self.conv2 = self._conv_layer(self.pool1, "conv2")
-            self.pool2 = self._max_pool(self.conv2, 'pool2', debug)
-            self.conv3 = self._conv_layer(self.pool2, "conv3")
-            self.pool3 = self._max_pool(self.conv3,'pool3', debug)
-            
-            self.conv4 = self._conv_layer(self.pool3,"conv4")
-            self.pool4 = self._max_pool(self.conv4,'pool4', debug)
-            
-            self.conv5 = self._conv_layer(self.pool4,"conv5")
-            self.pool5 = self._max_pool(self.conv5, 'pool5', debug)
-            self.fc6 = self._fc_layer(self.pool5,"fc6")
+            k_h = 3; k_w = 3; s_h = 2; s_w = 2; padding = 'VALID'
+            self.pool1 = self._max_pool(self.lrn1, k_h, k_w, s_h, s_w, 'pool1', debug)
+
+            k_h = 5; k_w = 5; c_o = 256; s_h = 1; s_w = 1;
+            self.conv2 = self._conv_layer(self.pool1, s_h, s_w, "conv2")
+            #lrn2
+            # #lrn(2, 2e-05, 0.75, name='norm2')
+            radius = 2; alpha = 2e-05; beta = 0.75; bias = 1.0
+            self.lrn2 = tf.nn.local_response_normalization(self.conv2,
+                                                  depth_radius=radius,
+                                                  alpha=alpha,
+                                                  beta=beta,
+                                                  bias=bias)
+
+            k_h = 3; k_w = 3; s_h = 2; s_w = 2; padding = 'VALID'
+            self.pool2 = self._max_pool(self.lrn2, k_h, k_w, s_h, s_w, 'pool2', debug)
+
+            k_h = 3; k_w = 3; c_o = 384; s_h = 1; s_w = 1;
+            self.conv3 = self._conv_layer(self.pool2, s_h, s_w, "conv3")
+
+            k_h = 3; k_w = 3; c_o = 384; s_h = 1; s_w = 1;
+            self.conv4 = self._conv_layer(self.conv3, s_h, s_w,"conv4")
+
+            k_h = 3; k_w = 3; c_o = 256; s_h = 1; s_w = 1;
+            self.conv5 = self._conv_layer(self.conv4, s_h, s_w,"conv5")
+
+            k_h = 3; k_w = 3; s_h = 2; s_w = 2; padding = 'VALID'
+            self.pool5 = self._max_pool(self.conv5, k_h, k_w, s_h, s_w,'pool5', debug)
+
+            self.fc6W = tf.Variable(self.data_dict[name+"_"+"fc6"][0])
+            self.fc6b = tf.Variable(self.data_dict[name+"_"+"fc6"][1])
+            temp = np.prod(self.pool5.get_shape()[1:])
+            self.fc6 = tf.nn.relu_layer(tf.reshape(self.pool5, [-1, np.int(np.prod(self.pool5.get_shape()[1:]))]), self.fc6W, self.fc6b)
             
             if train:
                 self.fc6 = tf.nn.dropout(self.fc6, 0.5)
-                
-            self.fc7 = self._fc_layer(self.fc6,"fc7")
+            self.fc7W = tf.Variable(self.data_dict[name+"_"+"fc7"][0])
+            self.fc7b = tf.Variable(self.data_dict[name+"_"+"fc7"][1])
+            self.fc7 = tf.nn.relu_layer(self.fc6, self.fc7W, self.fc7b)
+
             if train:
                 self.fc7 = tf.nn.dropout(self.fc7, 0.5)
                 #returning input to S3-CNN
             return self.fc7
             
     
-    def _max_pool(self, bottom, name, debug):
+    def _max_pool(self, bottom, k_h, k_w, s_h, s_w, name, debug):
         path = tf.get_variable_scope().name
-        pool = tf.nn.max_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
-                              padding='SAME', name=name)
+        pool = tf.nn.max_pool(bottom, ksize=[1, k_h, k_w, 1], strides=[1, s_h, s_w, 1],
+                              padding='VALID', name=name)
 
         if debug:
             pool = tf.Print(pool, [tf.shape(pool)],
@@ -124,14 +165,21 @@ class S3CNN:
                             summarize=4, first_n=1)
         return pool
 
-    def _conv_layer(self, bottom, name):
+    def _conv_layer(self, bottom,s_h,s_w, name):
+        convolve = lambda i, k: tf.nn.conv2d(i, k, [1, s_h, s_w, 1], padding="SAME")
         path = tf.get_variable_scope().name
         with tf.variable_scope(name) as scope:
+            group = name in ['conv1','conv3']
             if path != '':
                 name = path+'_'+name
             filt = self.get_conv_filter(name)
-            conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
-
+            if group:
+                conv = convolve(bottom, filt)
+            else:
+                input_groups = tf.split(3, 2, bottom)
+                kernel_groups = tf.split(3, 2, filt)
+                output_groups = [convolve(i, k) for i,k in zip(input_groups, kernel_groups)]
+                conv = tf.concat(3, output_groups)
             conv_biases = self.get_bias(name)
             bias = tf.nn.bias_add(conv, conv_biases)
 
@@ -149,21 +197,16 @@ class S3CNN:
 
             shape = bottom.get_shape().as_list()
 
-            if 'fc6' in name:
-                filt = self.get_fc_weight_reshape(name, [7, 7, 512, 4096])
-            elif 'nn1' in name:
-                filt = self.get_fc_weight_reshape(name, [1, 1, 12288, 300])
+            if 'nn1' in name:
+                filt = self.get_fc_weight_reshape(name, [12288, 300])
             elif 'nn2' in name:
-                filt = self.get_fc_weight_reshape(name, [1, 1, 300, 300])
+                filt = self.get_fc_weight_reshape(name, [300, 300])
 
-            elif 'score_fr' in name:
+            else :
                 ind = name.find('score_fr')
                 name = name [0:ind] + 'nnout'  # Name of score_fr layer in MDF Model
-                filt = self.get_fc_weight_reshape(name, [1, 1, 300, 2],
+                filt = self.get_fc_weight_reshape(name, [300, 2],
                                                   num_classes=num_classes)
-            else:
-                filt = self.get_fc_weight_reshape(name, [1, 1, 4096, 4096])
-                
             conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
             conv_biases = self.get_bias(name, num_classes=num_classes)
             bias = tf.nn.bias_add(conv, conv_biases)
