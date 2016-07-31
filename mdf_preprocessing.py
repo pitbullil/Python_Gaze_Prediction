@@ -1,9 +1,10 @@
-from skimage import io
+from skimage import io as sio
 import dill
 import scipy as sp
 import os
 import numpy as np
 from skimage.segmentation import slic as slic_wrap
+from skimage.segmentation import felzenszwalb as fseg
 
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
@@ -41,8 +42,8 @@ def save_SLIC_segmentations_MSRA(images,in_dir,out_dir,NSP):
     if str(NSP) not in os.listdir(out_dir+'SLIC_Segs'):
         os.mkdir(out_dir+'/SLIC_Segs/'+str(NSP))
     for fimg in images :
-        img = io.imread(in_dir+fimg)
-        gt = io.imread(in_dir+fimg[0:-3]+'png')/255
+        img = sio.imread(in_dir+fimg)
+        gt = sio.imread(in_dir+fimg[0:-3]+'png')/255
         SLIC_seg = np.uint16(slic_wrap(img,NSP, 10, sigma=1, enforce_connectivity=True))
         saliency = []
         segments = []
@@ -59,6 +60,33 @@ def save_SLIC_segmentations_MSRA(images,in_dir,out_dir,NSP):
         dill.dump(saliency,fslic)
         fslic.close()        
 
+def save_fseg_segmentations_MSRA(images,in_dir,out_dir,param_path,train = False):
+    fparams = np.load(param_path).item()
+    if 'f_Segs' not in os.listdir(out_dir):
+        os.mkdir(out_dir+'/f_Segs')
+
+    for fimg in images :
+        img = sio.imread(in_dir+fimg)
+        gt = sio.imread(in_dir+fimg[0:-3]+'png')/255
+        segs = {}
+        for g in range(0,15):
+
+
+            f_seg = np.uint16(fseg(img,fparams['scale'][g],fparams['sigma'][g],fparams['min_size'][g]))
+            saliency = []
+            segments = []
+
+            segments_temp = np.unique(f_seg)
+            for segment in segments_temp:
+                sal_temp = calc_saliency_score(segment,f_seg,gt)
+                if (not(train) or (sal_temp >= 0)) :
+                    segments.append(segment)
+                    saliency.append(np.uint0(sal_temp))
+            segs[str(g)]={}
+            segs[str(g)]['segmap']= f_seg
+            segs[str(g)]['seglist']= segments
+            segs[str(g)]['labels']= saliency
+        np.save(out_dir+'/f_Segs/'+fimg[0:-4],segs)
     
 #calculates a segment's saliency score - binary label 0 or 1
     #if saliency is undecided(not enough pixels of 1 class )
@@ -84,12 +112,12 @@ def im2mdfin(img,mean,segmap,segments):
 
     result = MDFInData()
     mean_image = sp.misc.imresize(mean,img.shape)
-    
+
     #Superpixel segmentation - to be replaced by other segmentation if necessary
     #SLIC_seg = slic_wrap(img, nsp, 10, sigma=1, enforce_connectivity=True)
     #segments = np.unique(SLIC_seg)
     #numSP = 0
-    
+
     for SPi in range(0,segments.__len__()):
         pair = MDFInRecord()
         curr_sp = segments[SPi]
@@ -122,18 +150,17 @@ def im2mdfin(img,mean,segmap,segments):
         #mean subtraction on region B
         bounding_box_second = bounding_box_second - mean_image[bb_mid[0,0]:bb_mid[0,1],bb_mid[1,0]:bb_mid[1,1]]
         #resizing superpixel to net input size
-        pair.SP_Region= np.array(sp.misc.imresize(seg_img,[227,227,3]),dtype = np.uint8)
+        pair.SP_Region= np.array(sp.misc.imresize(seg_img,[227,227,3]))#,dtype = np.uint8)
         #resizing neighborhood to net input size
-        pair.SP_Neighbor = np.array(sp.misc.imresize(bounding_box_second,[227,227,3]),dtype = np.uint8)
+        pair.SP_Neighbor = np.array(sp.misc.imresize(bounding_box_second,[227,227,3]))#,dtype = np.uint8)
         #picture with segment masked
         picture = np.copy(img)-mean_image
         picture[segmap == curr_sp,:]=0
-        pair.Pic = np.array(sp.misc.imresize(picture,[227,227,3]),dtype = np.uint8)
-        #pair.saliency = round(saliency_score) 
+        pair.Pic = np.array(sp.misc.imresize(picture,[227,227,3]))#,dtype = np.uint8)
+        #pair.saliency = round(saliency_score)
         pair.SP_mask = sp.misc.imresize(sp_mask,[227,227,3])
         result.segments.append(pair)
     return result
-
 
 def msradirtomdfin(dir_path,NSP):
     #extracting names of images in dataset
@@ -183,6 +210,78 @@ def _generate_image_segments_and_label_batch(images,img_dir,seg_dir,mean_img):
             test_batch.append(x.Pic)
 
     return test_batch
+
+#returning a list of MDF records for each segment containing sets of training examples and input of the following form:
+#SP_Region - [227x227x3] bounding box of the segment with the area around it set to mean image values
+#SP_Neighbour - [227x227x3] bounding box of the resized segment and it's immediate neighbouring segments
+#Pic - [227x227x3] bounding box of the resized image with the segment blackened
+#SP_mask - 227x227x3 mask for the segement location in the original image
+#saliency - a saliency score for the segment if one can be decided upon.
+def im2mdfin2(img,mean,segmap,segments):
+
+    result = []
+    mean_image = sp.misc.imresize(mean,img.shape)
+    xdim = img.shape
+    #Superpixel segmentation - to be replaced by other segmentation if necessary
+    #SLIC_seg = slic_wrap(img, nsp, 10, sigma=1, enforce_connectivity=True)
+    #segments = np.unique(SLIC_seg)
+    #numSP = 0
+    for SPi in range(0,segments.__len__()):
+        pair = MDFInRecord()
+        curr_sp = segments[SPi]
+        sp_mask= np.uint0(segmap == curr_sp)
+        indices = np.where((segmap == curr_sp)!=0)
+        bb = np.array([[np.min(indices[0]),np.max(indices[0])],[np.min(indices[1]),np.max(indices[1])]])
+        #extracting only the superpixel
+        seg_img = np.copy(img[bb[0,0]:bb[0,1]+1,bb[1,0]:bb[1,1]+1])
+        mean_seg = np.copy(mean_image[bb[0,0]:bb[0,1]+1,bb[1,0]:bb[1,1]+1])
+        local_seg = segmap[bb[0,0]:bb[0,1]+1,bb[1,0]:bb[1,1]+1]
+        #zeroing area around superpixel
+        seg_img[local_seg != curr_sp,:]=mean_seg[local_seg != curr_sp,:]
+        #num_pixels = np.sum(local_seg == curr_sp)
+        #resizing superpixel to net input size and mean subtraction
+        pair.SP_Region= np.array(sp.misc.imresize(seg_img,[227,227,3]))-mean#,dtype = np.uint8)
+        #GT_label = np.copy(gt[bb[0,0]:bb[0,1],bb[1,0]:bb[1,1]])
+        #GT_label[local_seg != curr_sp]=0
+        #saliency_score = np.sum(GT_label/255)/num_pixels
+        #Saliency score is deemed reliant so we can add it here
+        #if saliency_score > 0.7 or saliency_score < 0.3:
+        #numSP = numSP+1
+        #finding the neighbor segments
+        neighbors = np.unique(local_seg)
+        if (neighbors.__len__() < 2) :
+            if bb[0,0] >0 :
+                bb[0,0]= bb[0,0]-1
+            if bb[0,1] < img.shape[0]-1 :
+                bb[0,1]= bb[0,1]+1
+            if bb[1,0] >0 :
+                bb[1,0]= bb[1,0]-1
+            if bb[1,1] < img.shape[1]-1 :
+                bb[1,1]= bb[1,1]+1
+        local_seg = segmap[bb[0,0]:bb[0,1]+1,bb[1,0]:bb[1,1]+1]
+        neighbors = np.unique(local_seg)
+
+        #extracting locations of neighbor segments in image
+        ix = np.where(np.in1d(segmap.ravel(),neighbors).reshape(segmap.shape))
+        #calculating a bounding box over neghbor superpixels
+        bb_mid= np.array([[np.min(ix[0]),np.max(ix[0])],[np.min(ix[1]),np.max(ix[1])]])
+        #cropping the bounding box - this is the input to the 2nd mini CNN
+        bounding_box_second = np.copy(img[bb_mid[0,0]:bb_mid[0,1]+1,bb_mid[1,0]:bb_mid[1,1]+1])
+        #mean subtraction on region B
+        #resizing neighborhood to net input size and mean subtraction
+        pair.SP_Neighbor = np.array(sp.misc.imresize(bounding_box_second,[227,227,3]))-mean#,dtype = np.uint8)
+        #picture with segment masked
+        picture = np.copy(img)
+        picture[segmap == curr_sp,:]=mean_image[segmap == curr_sp,:]
+        pair.Pic = np.array(sp.misc.imresize(picture,[227,227,3]))-mean#,dtype = np.uint8)
+        #pair.saliency = round(saliency_score)
+        pair.SP_mask = sp.misc.imresize(sp_mask,[227,227,3])
+        result.append(pair.SP_Region)
+        result.append(pair.SP_Neighbor)
+        result.append(pair.Pic)
+
+    return result
+
 
 def dill_file_to_shuffle_batch(file_path):
     with open(file_path,'rb') as f:
