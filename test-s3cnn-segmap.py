@@ -1,11 +1,8 @@
 import sys
 sys.path.insert(0,'./tensorflow-fcn')
-import utils
 import mdfgraph as mdf
 import numpy as np
 import tensorflow as tf
-import scipy as scp
-import cv2
 from mdf_preprocessing import im2mdfin2
 from skimage import io as sio
 

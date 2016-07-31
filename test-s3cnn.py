@@ -1,9 +1,6 @@
 import sys
-sys.path.insert(0,'./tensorflow-fcn')
-import utils
 import mdfgraph as mdf
 import numpy as np
-import scipy as scp
 import tensorflow as tf
 
 with tf.Session() as sess:
