@@ -10,10 +10,18 @@ import numpy as np
 import tensorflow as tf
 sys.path.insert(0,'./tensorflow-fcn')
 
-MAX_BATCH_SIZE =50
+MAX_BATCH_SIZE =10
 
+NUM_CLASSES = 2
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 500
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 500
+MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
+NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
+LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
+INITIAL_LEARNING_RATE = 0.1 # Initial learning rate.
+MDF_DIM = 227
 class S3CNN:
-
+    num_classes =2
     #provide a path to the weights file for each layer
     
     #loading initial weights
@@ -31,7 +39,7 @@ class S3CNN:
         self.wd = 5e-4
         print("npy file loaded")
         
-    def build(self, sp,nn,pic, train=False,random_init_fc8=False,debug=False):
+    def inference(self, sp,nn,pic, train=False,random_init_fc8=False,debug=False):
         
         self.sp_out = self.__stream(sp,"sp")
         self.nn_out = self.__stream(nn,"nn")
@@ -56,12 +64,42 @@ class S3CNN:
         self.nnoutW = tf.Variable(self.data_dict["nout"][0])
         self.nnoutb = tf.Variable(self.data_dict["nout"][1])
         self.nnout = tf.sigmoid(tf.matmul(self.nn2, self.nnoutW)+ self.nnoutb)
-
+        return self.nnout
         #self.nn1 = self._fc_layer(self.feat, "nn1")
         #self.nn2 = self._fc_layer(self.nn1, "nn2")
         #self.scor_fr = self._fc_layer(self.nn2, "score_fr")
         #self.pred = tf.argmax(self.score_fr, dimension=3)
 
+    def nn_top(self, vect, train=False,random_init_fc8=False,debug=False):
+
+        self.sp_out = self.__stream(sp,"sp")
+        self.nn_out = self.__stream(nn,"nn")
+        self.pic_out = self.__stream(pic,"pic")
+        self.shape = tf.shape(self.sp_out)
+
+        print(self.shape)
+
+        self.feat = tf.concat(1,[self.sp_out,self.nn_out,self.pic_out])
+        self.fshape = tf.shape(self.feat)
+
+        print(self.fshape)
+
+        self.nn1W = tf.Variable(self.data_dict["nn1"][0])
+        self.nn1b = tf.Variable(self.data_dict["nn1"][1])
+        self.nn1 = tf.tanh(tf.matmul(self.feat, self.nn1W)+ self.nn1b)
+
+        self.nn2W = tf.Variable(self.data_dict["nn2"][0])
+        self.nn2b = tf.Variable(self.data_dict["nn2"][1])
+        self.nn2 = tf.tanh(tf.matmul(self.nn1, self.nn2W)+ self.nn2b)
+
+        self.nnoutW = tf.Variable(self.data_dict["nout"][0])
+        self.nnoutb = tf.Variable(self.data_dict["nout"][1])
+        self.nnout = tf.sigmoid(tf.matmul(self.nn2, self.nnoutW)+ self.nnoutb)
+        return self.nnout
+        #self.nn1 = self._fc_layer(self.feat, "nn1")
+        #self.nn2 = self._fc_layer(self.nn1, "nn2")
+        #self.scor_fr = self._fc_layer(self.nn2, "score_fr")
+        #self.pred = tf.argmax(self.score_fr, dimension=3)
 
     def __stream(self,rgb,name , train=False, num_classes=2,debug=False):
         """
@@ -307,7 +345,7 @@ class S3CNN:
         shape = self.data_dict[name][0].shape
         print('Layer name: %s' % name)
         print('Layer shape: %s' % str(shape))
-        var = tf.get_variable(name="filter", initializer=init, shape=shape)
+        var = tf.get_variable(name="filter", initializer=init, shape=shape, trainable=False)
         if not tf.get_variable_scope().reuse:
             weight_decay = tf.mul(tf.nn.l2_loss(var), self.wd,
                                   name='weight_loss')
@@ -323,13 +361,13 @@ class S3CNN:
             shape = [num_classes]
         init = tf.constant_initializer(value=bias_wights,
                                        dtype=tf.float32)
-        return tf.get_variable(name="biases", initializer=init, shape=shape)
+        return tf.get_variable(name="biases", initializer=init, shape=shape, trainable=False)
 
     def get_fc_weight(self, name):
         init = tf.constant_initializer(value=self.data_dict[name][0],
                                        dtype=tf.float32)
         shape = self.data_dict[name][0].shape
-        var = tf.get_variable(name="weights", initializer=init, shape=shape)
+        var = tf.get_variable(name="weights", initializer=init, shape=shape, trainable=False)
         if not tf.get_variable_scope().reuse:
             weight_decay = tf.mul(tf.nn.l2_loss(var), self.wd,
                                   name='weight_loss')
@@ -407,7 +445,7 @@ class S3CNN:
 
         initializer = tf.truncated_normal_initializer(stddev=stddev)
         var = tf.get_variable('weights', shape=shape,
-                              initializer=initializer)
+                              initializer=initializer, trainable=False)
 
         if wd and (not tf.get_variable_scope().reuse):
             weight_decay = tf.mul(tf.nn.l2_loss(var), wd, name='weight_loss')
@@ -417,7 +455,7 @@ class S3CNN:
     def _bias_variable(self, shape, constant=0.0):
         initializer = tf.constant_initializer(constant)
         return tf.get_variable(name='biases', shape=shape,
-                               initializer=initializer)
+                               initializer=initializer, trainable=False)
 
     def get_fc_weight_reshape(self, name, shape, num_classes=None):
         print('Layer name: %s' % name)
@@ -429,7 +467,135 @@ class S3CNN:
                                             num_new=num_classes)
         init = tf.constant_initializer(value=weights,
                                        dtype=tf.float32)
-        return tf.get_variable(name="weights", initializer=init, shape=shape)
+        return tf.get_variable(name="weights", initializer=init, shape=shape, trainable=False)
+
+    def loss(self,logits, labels):
+        """Calculate the loss from the logits and the labels.
+
+        Args:
+          logits: tensor, float - [batch_size, width, height, num_classes].
+              Use vgg_fcn.up as logits.
+          labels: Labels tensor, int32 - [batch_size, width, height, num_classes].
+              The ground truth of your data.
+          head: numpy array - [num_classes]
+              Weighting the loss of each class
+              Optional: Prioritize some classes
+
+        Returns:
+          loss: Loss tensor of type float.
+        """
+        with tf.name_scope('loss'):
+            logits = tf.reshape(logits, (-1, self.num_classes))
+            epsilon = tf.constant(value=1e-4)
+            logits = logits + epsilon
+            labels = tf.to_float(tf.reshape(labels, (-1, self.num_classes)))
+
+            sse = tf.reduce_sum(
+                tf.square(tf.sub(labels,logits)), reduction_indices=[1])
+
+            sse_mean = tf.reduce_mean(sse,
+                                      name='xentropy_mean')
+            tf.add_to_collection('losses', sse_mean)
+
+            loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
+        return loss
+
+    def evaluation(self, logits, labels):
+        """Evaluate the quality of the logits at predicting the label.
+        Args:
+            logits: Logits tensor, float - [batch_size, NUM_CLASSES].
+            labels: Labels tensor, int32 - [batch_size], with values in the
+            range [0, NUM_CLASSES).
+        Returns:
+            A scalar int32 tensor with the number of examples (out of batch_size)
+            that were predicted correctly.
+        """
+        # For a classifier model, we can use the in_top_k Op.
+        # It returns a bool tensor with shape [batch_size] that is true for
+        # the examples where the label is in the top k (here k=1)
+        # of all logits for that example.
+        pred = tf.argmax(logits,1)
+        gt = tf.argmax(labels,1)
+
+        correct = tf.equal(pred,gt)
+        # Return the number of true entries.
+        return tf.reduce_sum(tf.cast(correct, tf.int32))
+
+    def train(self, total_loss, global_step):
+        """Train mdf model.
+        Create an optimizer and apply to all trainable variables. Add moving
+        average for all trainable variables.
+        Args:
+            total_loss: Total loss from loss().
+            global_step: Integer Variable counting the number of training steps
+            processed.
+        Returns:
+            train_op: op for training.
+        """
+        # Variables that affect learning rate.
+        num_images_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / MAX_BATCH_SIZE
+        decay_steps = int(num_images_per_epoch * NUM_EPOCHS_PER_DECAY)
+
+        # Decay the learning rate exponentially based on the number of steps.
+        lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
+                                      global_step,
+                                      decay_steps,
+                                      LEARNING_RATE_DECAY_FACTOR,
+                                      staircase=True)
+        tf.scalar_summary('learning_rate', lr)
+
+        # Generate moving averages of all losses and associated summaries.
+        loss_averages_op = _add_loss_summaries(total_loss)
+
+        # Compute gradients.
+        with tf.control_dependencies([loss_averages_op]):
+            opt =tf.train.GradientDescentOptimizer(lr)
+            grads = opt.compute_gradients(total_loss)
+
+         # Apply gradients.
+        apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+
+        # Add histograms for trainable variables.
+        for var in tf.trainable_variables():
+            tf.histogram_summary(var.op.name, var)
+
+        # Add histograms for gradients.
+        for grad, var in grads:
+            if grad is not None:
+                tf.histogram_summary(var.op.name + '/gradients', grad)
+
+        # Track the moving averages of all trainable variables.
+        variable_averages = tf.train.ExponentialMovingAverage(
+            MOVING_AVERAGE_DECAY, global_step)
+        variables_averages_op = variable_averages.apply(tf.trainable_variables())
+
+        with tf.control_dependencies([apply_gradient_op, variables_averages_op]):
+            train_op = tf.no_op(name='train')
+        return train_op
+
+def _add_loss_summaries(total_loss):
+    """Add summaries for losses in CIFAR-10 model.
+    Generates moving average for all losses and associated summaries for
+    visualizing the performance of the network.
+    Args:
+        total_loss: Total loss from loss().
+    Returns:
+        loss_averages_op: op for generating moving averages of losses.
+    """
+    # Compute the moving average of all individual losses and the total loss.
+
+    loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
+    losses = tf.get_collection('losses')
+    loss_averages_op = loss_averages.apply(losses + [total_loss])
+    # Attach a scalar summary to all individual losses and the total loss; do the
+    #  same for the averaged version of the losses.
+    for l in losses + [total_loss]:
+    # Name each loss as '(raw)' and name the moving average version of the loss
+    #  as the original loss name.
+        tf.scalar_summary(l.op.name +' (raw)', l)
+        tf.scalar_summary(l.op.name, loss_averages.average(l))
+
+    return loss_averages_op
 
 
 def _activation_summary(x):
@@ -449,3 +615,4 @@ def _activation_summary(x):
     # tensor_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', x.op.name)
     tf.histogram_summary(tensor_name + '/activations', x)
     tf.scalar_summary(tensor_name + '/sparsity', tf.nn.zero_fraction(x))
+
