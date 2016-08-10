@@ -87,7 +87,24 @@ def save_fseg_segmentations_MSRA(images,in_dir,out_dir,param_path,train = False)
             segs[str(g)]['seglist']= segments
             segs[str(g)]['labels']= saliency
         np.save(out_dir+'/f_Segs/'+fimg[0:-4],segs)
-    
+
+def trainable_segmentations_from_batch(segs):
+    result = {}
+    for g in range(0,segs.__len__()):
+        result[str(g)]={}
+        result[str(g)]['segmap']= segs[str(g)]['segmap']
+        saliency = []
+        segments = []
+        for s in segs[str(g)]['seglist']:
+            if ((segs[str(g)]['labels'][s] in [0,1])) :
+                segments.append(segs[str(g)]['seglist'][s])
+                sal_temp = [0,0]
+                sal_temp[segs[str(g)]['labels'][s]]=1
+                saliency.append(sal_temp)
+        result[str(g)]['seglist']= segments
+        result[str(g)]['labels']= saliency
+    return result
+
 #calculates a segment's saliency score - binary label 0 or 1
     #if saliency is undecided(not enough pixels of 1 class )
 def calc_saliency_score(segment,slic,gt):
