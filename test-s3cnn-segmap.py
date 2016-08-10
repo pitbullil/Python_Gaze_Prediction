@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 from mdf_preprocessing import im2mdfin2
 from skimage import io as sio
+from mdf_preprocessing import trainable_segmentations_from_batch
+import time
 
 
 #INPUT:
@@ -26,10 +28,10 @@ def image_to_saliency_map_mdf(image,mean,segdata,fuseweights):
         pic_in = tf.placeholder(tf.float32, (None,) + xdim)
 
         with tf.name_scope("content_s3cnn"):
-            s3cnn.build(sp_in,nn_in,pic_in, debug=True)
+            s3cnn.inference(sp_in,nn_in,pic_in, debug=True)
         print('Finished building Network.')
         init = tf.initialize_all_variables()
-        sess.run(tf.initialize_all_variables())
+        sess.run(init)
 
         for i in range(0,segdata.__len__()):
             temp = np.zeros(image.shape[0:2])
@@ -65,7 +67,9 @@ mean = np.load("/home/nyarbel/Python_Gaze_Prediction/mean.npy")
 image = sio.imread("/home/nyarbel/Python_Gaze_Prediction/0010.jpg")
 segdata = np.load("/home/nyarbel/Python_Gaze_Prediction/0010.npy").item()
 fuseweights = [0.9432, 0.9042, 0.9337, 0.9392, 0.9278, 0.930, 0.9148, 0.945, 0.8742, 0.9177, 0.8755, 0.8616,0.9298,0.8742,0.9089]
-
+start_time = time.time()
 sal_map = image_to_saliency_map_mdf(image,mean,segdata,fuseweights)
+duration = time.time() - start_time
+print(duration)
 sio.imsave('x.jpg',sal_map)
 

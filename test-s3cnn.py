@@ -15,12 +15,12 @@ with tf.Session() as sess:
     pic_in = tf.placeholder(tf.float32, (None,) + xdim)
     s3cnn = mdf.S3CNN()
     with tf.name_scope("content_s3cnn"):
-        s3cnn.build(sp_in,nn_in,pic_in, debug=True)
+        s3cnn.inference(sp_in,nn_in,pic_in, debug=True)
     print('Finished building Network.')
     init = tf.initialize_all_variables()
     sess.run(tf.initialize_all_variables())
     print('Running the Network')
-    tensors = [s3cnn.nnout]
+    tensors = [s3cnn.feat]
     x = []
     for i in range(0,10):
         feed_dict = {sp_in :sp[0:100], nn_in : nn[0:100], pic_in : pic[0:100]}
