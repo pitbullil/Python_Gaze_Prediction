@@ -31,70 +31,37 @@ class S3CNN:
             # print path
             path = os.path.abspath(os.path.join(path, os.pardir))
             # print path
-            path = os.path.join(path, "s3cnn_weights.npy")
+            path = os.path.join(path, "s3cnn_weights1.npy")
             print(path)
             s3cnn_npy_path = path
             
         self.data_dict = np.load(s3cnn_npy_path, encoding='latin1').item()
         self.wd = 5e-4
         print("npy file loaded")
-        
-    def inference(self, sp,nn,pic, train=False,random_init_fc8=False,debug=False):
-        
-        self.sp_out = self.__stream(sp,"sp")
-        self.nn_out = self.__stream(nn,"nn")
-        self.pic_out = self.__stream(pic,"pic")
-        self.shape = tf.shape(self.sp_out)
 
-        print(self.shape)
-                  
-        self.feat = tf.concat(1,[self.sp_out,self.nn_out,self.pic_out])
-        self.fshape = tf.shape(self.feat)
-
-        print(self.fshape)
-    
-        self.nn1W = tf.Variable(self.data_dict["nn1"][0])
-        self.nn1b = tf.Variable(self.data_dict["nn1"][1])
-        self.nn1 = tf.tanh(tf.matmul(self.feat, self.nn1W)+ self.nn1b)
-
-        self.nn2W = tf.Variable(self.data_dict["nn2"][0])
-        self.nn2b = tf.Variable(self.data_dict["nn2"][1])
-        self.nn2 = tf.tanh(tf.matmul(self.nn1, self.nn2W)+ self.nn2b)
-
-        self.nnoutW = tf.Variable(self.data_dict["nout"][0])
-        self.nnoutb = tf.Variable(self.data_dict["nout"][1])
-        self.nnout = tf.sigmoid(tf.matmul(self.nn2, self.nnoutW)+ self.nnoutb)
+    def mdf_full(self, sp,nn,pic, train=False,random_init_fc8=False,debug=False):
+        self.feat = self.s3cnn_net(sp,nn,pic)
+        self.nnout = self.inference(self.feat)
         return self.nnout
-        #self.nn1 = self._fc_layer(self.feat, "nn1")
-        #self.nn2 = self._fc_layer(self.nn1, "nn2")
-        #self.scor_fr = self._fc_layer(self.nn2, "score_fr")
-        #self.pred = tf.argmax(self.score_fr, dimension=3)
 
-    def nn_top(self, vect, train=False,random_init_fc8=False,debug=False):
-
+    def s3cnn_net(self, sp,nn,pic, train=False,random_init_fc8=False,debug=False):
         self.sp_out = self.__stream(sp,"sp")
         self.nn_out = self.__stream(nn,"nn")
         self.pic_out = self.__stream(pic,"pic")
-        self.shape = tf.shape(self.sp_out)
+        self.feat = tf.concat(1,[tf.ones([tf.shape(self.sp_out)[0],1]),self.sp_out,self.nn_out,self.pic_out])
+        return self.feat
 
-        print(self.shape)
 
-        self.feat = tf.concat(1,[self.sp_out,self.nn_out,self.pic_out])
-        self.fshape = tf.shape(self.feat)
 
-        print(self.fshape)
+    def inference(self, feat, train=False,random_init_fc8=False,debug=False):
+        self.nn1W = tf.Variable(self.data_dict["nn1"])
+        self.nn1 = tf.tanh(tf.matmul(feat, self.nn1W))
 
-        self.nn1W = tf.Variable(self.data_dict["nn1"][0])
-        self.nn1b = tf.Variable(self.data_dict["nn1"][1])
-        self.nn1 = tf.tanh(tf.matmul(self.feat, self.nn1W)+ self.nn1b)
+        self.nn2W = tf.Variable(self.data_dict["nn2"])
+        self.nn2 = tf.tanh(tf.matmul(tf.concat(1,[tf.ones([tf.shape(self.nn1)[0],1]),self.nn1]), self.nn2W))
 
-        self.nn2W = tf.Variable(self.data_dict["nn2"][0])
-        self.nn2b = tf.Variable(self.data_dict["nn2"][1])
-        self.nn2 = tf.tanh(tf.matmul(self.nn1, self.nn2W)+ self.nn2b)
-
-        self.nnoutW = tf.Variable(self.data_dict["nout"][0])
-        self.nnoutb = tf.Variable(self.data_dict["nout"][1])
-        self.nnout = tf.sigmoid(tf.matmul(self.nn2, self.nnoutW)+ self.nnoutb)
+        self.nnoutW = tf.Variable(self.data_dict["nout"])
+        self.nnout = tf.sigmoid(tf.matmul(tf.concat(1,[tf.ones([tf.shape(self.nn2)[0],1]),self.nn2]), self.nnoutW))
         return self.nnout
         #self.nn1 = self._fc_layer(self.feat, "nn1")
         #self.nn2 = self._fc_layer(self.nn1, "nn2")
