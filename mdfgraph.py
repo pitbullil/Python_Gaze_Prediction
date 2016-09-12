@@ -2,15 +2,19 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import os
+
 import logging
-from math import ceil
+import os
 import sys
+from math import ceil
+import time
+
 import numpy as np
 import tensorflow as tf
+
 sys.path.insert(0,'./tensorflow-fcn')
 
-MAX_BATCH_SIZE =10
+MAX_BATCH_SIZE =100
 
 NUM_CLASSES = 2
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 500
@@ -31,7 +35,7 @@ class S3CNN:
             # print path
             path = os.path.abspath(os.path.join(path, os.pardir))
             # print path
-            path = os.path.join(path, "s3cnn_weights1.npy")
+            path = os.path.join(path, "s3cnn_weights.npy")
             print(path)
             s3cnn_npy_path = path
             
@@ -142,15 +146,15 @@ class S3CNN:
             k_h = 3; k_w = 3; s_h = 2; s_w = 2; padding = 'VALID'
             self.pool5 = self._max_pool(self.conv5, k_h, k_w, s_h, s_w,'pool5', debug)
 
-            self.fc6W = tf.Variable(self.data_dict[name+"_"+"fc6"][0])
-            self.fc6b = tf.Variable(self.data_dict[name+"_"+"fc6"][1])
+            self.fc6W = tf.Variable(self.data_dict["fc6"][0])
+            self.fc6b = tf.Variable(self.data_dict["fc6"][1])
             temp = np.prod(self.pool5.get_shape()[1:])
             self.fc6 = tf.nn.relu_layer(tf.reshape(self.pool5, [-1, np.int(np.prod(self.pool5.get_shape()[1:]))]), self.fc6W, self.fc6b)
             
             if train:
                 self.fc6 = tf.nn.dropout(self.fc6, 0.5)
-            self.fc7W = tf.Variable(self.data_dict[name+"_"+"fc7"][0])
-            self.fc7b = tf.Variable(self.data_dict[name+"_"+"fc7"][1])
+            self.fc7W = tf.Variable(self.data_dict["fc7"][0])
+            self.fc7b = tf.Variable(self.data_dict["fc7"][1])
             self.fc7 = tf.nn.relu_layer(self.fc6, self.fc7W, self.fc7b)
 
             if train:
@@ -175,8 +179,8 @@ class S3CNN:
         path = tf.get_variable_scope().name
         with tf.variable_scope(name) as scope:
             group = name in ['conv1','conv3']
-            if path != '':
-                name = path+'_'+name
+            #if path != '':
+            #    name = path+'_'+name
             filt = self.get_conv_filter(name)
             if group:
                 conv = convolve(bottom, filt)
@@ -197,8 +201,8 @@ class S3CNN:
                   relu=True, debug=False):
         path = tf.get_variable_scope().name
         with tf.variable_scope(name) as scope:            
-            if path != '':
-                name = path+'_'+name
+            #if path != '':
+            #    name = path+'_'+name
 
             shape = bottom.get_shape().as_list()
 
@@ -582,4 +586,23 @@ def _activation_summary(x):
     # tensor_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', x.op.name)
     tf.histogram_summary(tensor_name + '/activations', x)
     tf.scalar_summary(tensor_name + '/sparsity', tf.nn.zero_fraction(x))
+
+def build_graph(sess):
+    t_net_build = time.time()
+    s3cnn = S3CNN()
+    xdim = (227, 227, 3)
+    sp_in = tf.placeholder(tf.float32, (None,) + xdim)
+    nn_in = tf.placeholder(tf.float32, (None,) + xdim)
+    pic_in = tf.placeholder(tf.float32, (None,) + xdim)
+
+    with tf.name_scope("content_s3cnn"):
+        s3cnn.mdf_full(sp_in, nn_in, pic_in, debug=True)
+    print('Finished building Network.')
+    init = tf.initialize_all_variables()
+    sess.run(init)
+    t_net_build = time.time()- t_net_build
+    print('time to build model')
+    print(t_net_build)
+    return s3cnn, sp_in,nn_in,pic_in
+
 

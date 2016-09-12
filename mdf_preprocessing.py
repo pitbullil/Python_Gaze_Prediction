@@ -10,10 +10,9 @@ felzenpath = '/home/nyarbel/felzenswalb'
 sys.path.insert(0,felzenpath)
 from felseg import felseg
 from skimage.transform import resize
-
+from adjmat import adjmat
 from skimage.segmentation import slic as slic_wrap
 from skimage.segmentation import felzenszwalb as fseg
-
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
 
@@ -76,12 +75,36 @@ def mult_seg(image,param_path):
 
             f_seg = np.zeros(image.shape[0:2],dtype=np.int32)
             felseg(image,f_seg,fparams['sigma'][g],np.float(fparams['scale'][g]),np.int(fparams['min_size'][g]))
-            f_seg+=1
             segments = np.unique(f_seg)
+            neighbour_mat = np.zeros([segments.__len__(),segments.__len__()],dtype=np.int32)
+            adjmat(f_seg,neighbour_mat)
+            f_seg+=1
+            segments+=1
+            # w = f_seg.shape[0]
+            # h = f_seg.shape[1]
+            # for i in range(0,w):
+            #     for j in range(0,h):
+            #         sp = f_seg[i][j]-1
+            #         if i>0 :
+            #            neighbour_mat[sp][f_seg[i-1][j]-1]=1
+            #            if j>0 :
+            #                neighbour_mat[sp][f_seg[i-1][j-1]-1]=1
+            #                neighbour_mat[sp][f_seg[i][j-1]-1]=1
+            #            if j< h-1 :
+            #                neighbour_mat[sp][f_seg[i-1][j+1]-1]=1
+            #                neighbour_mat[sp][f_seg[i][j+1]-1]=1
+            #         if i<w-1 :
+            #            neighbour_mat[sp][f_seg[i+1][j]-1]=1
+            #            if j>0 :
+            #                neighbour_mat[sp][f_seg[i+1][j-1]-1]=1
+            #            if j< h-1 :
+            #                neighbour_mat[sp][f_seg[i+1][j+1]-1]=1
+
+
             segs[str(g)]={}
             segs[str(g)]['segmap']= f_seg
             segs[str(g)]['seglist']= segments
-
+            segs[str(g)]['neighbour_mat']=neighbour_mat
         return segs
 
 def save_fseg_segmentations_MSRA(images,in_dir,out_dir,param_path,train = False):
@@ -258,7 +281,10 @@ def _generate_image_segments_and_label_batch(images,img_dir,seg_dir,mean_img):
 #Pic - [227x227x3] bounding box of the resized image with the segment blackened
 #SP_mask - 227x227x3 mask for the segement location in the original image
 #saliency - a saliency score for the segment if one can be decided upon.
-def im2mdfin2(img,mean,segmap,segments):
+def im2mdfin2(img,mean,segmap,segments,neighbormat):
+    SP_Region = []
+    SP_Neighbor = []
+    Pic = []
     result = []
     xdim = img.shape
     mean_image = pu.imresize(mean,xdim[1],xdim[0])
@@ -269,9 +295,7 @@ def im2mdfin2(img,mean,segmap,segments):
     for SPi in range(0,segments.__len__()):
         pair = MDFInRecord()
         curr_sp = segments[SPi]
-        sp_mask= np.uint0(segmap == curr_sp)
-
-        indices = np.where((segmap == curr_sp)!=0)
+        indices = np.where((segmap == curr_sp))
         bb = np.array([[np.min(indices[0]),np.max(indices[0])],[np.min(indices[1]),np.max(indices[1])]])
         #extracting only the superpixel
         seg_img = np.copy(img[bb[0,0]:bb[0,1]+1,bb[1,0]:bb[1,1]+1])
@@ -282,7 +306,7 @@ def im2mdfin2(img,mean,segmap,segments):
 
         #num_pixels = np.sum(local_seg == curr_sp)
         #resizing superpixel to net input size and mean subtraction
-        pair.SP_Region= np.transpose(np.array(pu.imresize(seg_img,227,227))-mean,(1,0,2))#,dtype = np.uint8)
+        SP_Region.append(np.transpose(np.array(pu.imresize(seg_img,227,227))-mean,(1,0,2)))#,dtype = np.uint8)
         #GT_label = np.copy(gt[bb[0,0]:bb[0,1],bb[1,0]:bb[1,1]])
         #GT_label[local_seg != curr_sp]=0
         #saliency_score = np.sum(GT_label/255)/num_pixels
@@ -290,20 +314,8 @@ def im2mdfin2(img,mean,segmap,segments):
         #if saliency_score > 0.7 or saliency_score < 0.3:
         #numSP = numSP+1
         #finding the neighbor segments
-        sp_temp = np.copy(sp_mask)
-        #making a neigbor mask
-        sp_temp[0:sp_temp.shape[0] - 1, 0:sp_temp.shape[1]] += sp_mask[1:sp_mask.shape[0], 0:sp_mask.shape[1]]# up
-        sp_temp[1:sp_temp.shape[0], 0:sp_temp.shape[1]] += sp_mask[0:sp_mask.shape[0] - 1, 0:sp_mask.shape[1]]# down
-        sp_temp[0:sp_temp.shape[0], 0:sp_temp.shape[1] - 1] += sp_mask[0:sp_mask.shape[0], 1:sp_mask.shape[1]]# left
-        sp_temp[0:sp_temp.shape[0], 1:sp_temp.shape[1]] += sp_mask[0:sp_mask.shape[0], 0:sp_mask.shape[1] - 1]# right
-        sp_temp[0:sp_temp.shape[0] - 1, 0:sp_temp.shape[1] - 1] += sp_mask[1:sp_mask.shape[0], 1:sp_mask.shape[1]]# lu
-        sp_temp[0:sp_temp.shape[0] - 1, 1:sp_temp.shape[1]] += sp_mask[1:sp_mask.shape[0], 0:sp_mask.shape[1] - 1]# ru
-        sp_temp[1:sp_temp.shape[0], 0:sp_temp.shape[1] - 1] += sp_mask[0:sp_mask.shape[0] - 1, 1:sp_mask.shape[1]]# ld
-        sp_temp[1:sp_temp.shape[0], 1:sp_temp.shape[1]] += sp_mask[0:sp_mask.shape[0] - 1, 0:sp_mask.shape[1] -1]# rd
-        n_mask=np.uint(sp_temp!=0)*segmap
-        sio.show()
 
-        neighbors = np.uint(np.unique(n_mask)[1:])
+        neighbors = np.nonzero(neighbormat[curr_sp-1])
         #if (neighbors.__len__() < 2) :
         #    if bb[0,0] >0 :
         #        bb[0,0]= bb[0,0]-1
@@ -324,35 +336,16 @@ def im2mdfin2(img,mean,segmap,segments):
         bounding_box_second = np.copy(img[bb_mid[0,0]:bb_mid[0,1]+1,bb_mid[1,0]:bb_mid[1,1]+1])
         #mean subtraction on region B
         #resizing neighborhood to net input size and mean subtraction
-        pair.SP_Neighbor = np.transpose(np.array(pu.imresize(bounding_box_second,227,227))-mean,(1,0,2))#,dtype = np.uint8)
+        SP_Neighbor.append(np.transpose(np.array(pu.imresize(bounding_box_second,227,227))-mean,(1,0,2)))#,dtype = np.uint8)
         #picture with segment masked
         picture = np.copy(img)
         picture[segmap == curr_sp,:]=mean_image[segmap == curr_sp,:]
-        pair.Pic = np.transpose(np.array(pu.imresize(picture,227,227))-mean,(1,0,2))#,dtype = np.uint8)
+        Pic.append(np.transpose(np.array(pu.imresize(picture,227,227))-mean,(1,0,2)))#,dtype = np.uint8)
         #pair.saliency = round(saliency_score)
-        pair.SP_mask = pu.imresize(sp_mask,227,227)
-
-        result.append(pair.SP_Region)
-        result.append(pair.SP_Neighbor)
-        result.append(pair.Pic)
-
-        if False :
-           sio.imshow(img)
-           sio.show()
-           Sp_r = np.copy(pair.SP_Region)
-           Sp_r[pair.SP_Region<0]=0
-           sio.imshow(np.uint8(Sp_r))
-           sio.show()
-           NN_r = np.copy(pair.SP_Neighbor)
-           NN_r[pair.SP_Neighbor<0]=0
-           sio.imshow(np.uint8(NN_r))
-           sio.show()
-           Pic_r = np.copy(pair.Pic)
-           Pic_r[pair.Pic<0]=0
-           sio.imshow(np.uint8(Pic_r))
-           sio.show()
-
-    return result
+        #result.append(pair.SP_Region)
+        #result.append(pair.SP_Neighbor)
+        #result.append(pair.Pic)
+    return SP_Region,SP_Neighbor,Pic
 
 
 def dill_file_to_shuffle_batch(file_path):

@@ -15,7 +15,7 @@ with tf.Session() as sess:
     pic_in = tf.placeholder(tf.float32, (None,) + xdim)
     s3cnn = mdf.S3CNN()
     with tf.name_scope("content_s3cnn"):
-        s3cnn.inference(sp_in,nn_in,pic_in, debug=True)
+        s3cnn.mdf_full(sp_in,nn_in,pic_in, debug=True)
     print('Finished building Network.')
     init = tf.initialize_all_variables()
     sess.run(tf.initialize_all_variables())
